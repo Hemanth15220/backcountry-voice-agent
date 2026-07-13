@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backcountry Route Coordinator</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #121212; color: white; margin: 0; padding: 20px; }
+        button { padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; margin: 10px; transition: 0.3s; }
+        #startBtn { background-color: #28a745; color: white; }
+        #startBtn:disabled { background-color: #555; cursor: not-allowed; }
+        #stopBtn { background-color: #dc3545; color: white; }
+        #stopBtn:disabled { background-color: #555; cursor: not-allowed; }
+        #status { margin-top: 20px; font-family: monospace; color: #aaa; }
+        #chat-box { margin-top: 30px; max-width: 600px; width: 100%; background: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333; min-height: 100px; }
+        .speaker-label { font-weight: bold; color: #28a745; margin-bottom: 5px; }
+        #response-text { line-height: 1.6; color: #eee; }
+    </style>
+</head>
+<body>
+
+    <h1>🏕️ Backcountry Agent</h1>
+    <div>
+        <button id="startBtn">Start Talking</button>
+        <button id="stopBtn" disabled>Stop</button>
+    </div>
+    <div id="status">Status: Waiting to connect...</div>
+
+    <div id="chat-box">
+        <div class="speaker-label">🏕️ Guide:</div>
+        <div id="response-text">Click "Start Talking" and speak into your microphone...</div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let socket;
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusDiv = document.getElementById('status');
+        const responseText = document.getElementById('response-text');
+
+        function initWebSocket() {
+            const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+            const wsUrl = `${protocol}://${window.location.host}/ws/audio`;
+            
+            socket = new WebSocket(wsUrl);
+            socket.onopen = () => { statusDiv.innerText = "Status: WebSocket Connected 🟢"; };
+            
+            // 🔊 LISTEN FOR TEXT FROM SERVER AND SPEAK IT
+            socket.onmessage = (event) => {
+                const text = event.data;
+                responseText.innerText = text;
+                
+                // Trigger Browser Text-to-Speech
+                const utterance = new SpeechSynthesisUtterance(text);
+                // Optional: choose a rugged-sounding voice if available
+                const voices = window.speechSynthesis.getVoices();
+                const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                if (defaultVoice) utterance.voice = defaultVoice;
+                
+                window.speechSynthesis.speak(utterance);
+            };
+
+            socket.onclose = () => { statusDiv.innerText = "Status: WebSocket Disconnected 🔴"; };
+        }
+
+        startBtn.onclick = async () => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) { initWebSocket(); }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+                        socket.send(event.data);
+                    }
+                };
+                mediaRecorder.start(250);
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                statusDiv.innerText = "Status: Recording and Streaming... 🎙️";
+            } catch (err) {
+                console.error("Error accessing microphone:", err);
+                statusDiv.innerText = "Error: Microphone access denied.";
+            }
+        };
+
+        stopBtn.onclick = () => {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            }
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            statusDiv.innerText = "Status: Stopped.";
+            window.speechSynthesis.cancel(); // Stop talking if user clicks stop
+        };
+
+        window.onload = initWebSocket;
+        // Pre-load voices for speech synthesis
+        window.speechSynthesis.getVoices();
+    </script>
+</body>
+</html>
