@@ -5,11 +5,13 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse
 import uvicorn
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 from groq import AsyncGroq
+from notifications import fetch_global_notifications
+from text_processing import normalize_user_input, humanize_response, verbalize_entities
 
-# Load API keys
 load_dotenv()
 
 app = FastAPI(title="Backcountry Route Coordinator")
@@ -18,7 +20,10 @@ templates = Jinja2Templates(directory="templates")
 deepgram = DeepgramClient(os.getenv("DEEPGRAM_API_KEY"))
 llm = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
-# 🛠️ TOOL 1: NPS Alerts
+chat_histories = {}
+active_utterances = {}
+notifications_cache = {"alerts": [], "weather": [], "timestamp": None}
+
 async def get_park_alerts(park_code: str) -> str:
     api_key = os.getenv("NPS_API_KEY")
     if not api_key: return "NPS API Key missing."
@@ -33,155 +38,217 @@ async def get_park_alerts(park_code: str) -> str:
     except Exception as e:
         return f"Error fetching NPS data: {str(e)}"
 
-# 🛠️ THE FIX: Safe URL parameter encoding using params=
 async def get_weather(location: str) -> str:
     api_key = os.getenv("OPENWEATHER_API_KEY")
-    if not api_key or api_key == "your_openweather_key_here": 
-        return "OpenWeather API Key is missing or using placeholder text."
-        
+    if not api_key or api_key == "your_openweather_key_here":
+        return "OpenWeather API Key is missing."
     url = "https://api.openweathermap.org/data/2.5/weather"
-    query_params = {
-        "q": location,
-        "units": "imperial",
-        "appid": api_key
-    }
-    
+    query_params = {"q": location, "units": "imperial", "appid": api_key}
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, params=query_params)
             data = resp.json()
             if resp.status_code != 200:
-                return f"Could not find weather for {location}. API response: {data.get('message', 'Unknown error')}"
+                return f"Could not find weather for {location}."
             temp = data["main"]["temp"]
             desc = data["weather"][0]["description"]
             return f"Current weather in {location}: {temp}°F and {desc}."
     except Exception as e:
         return f"Error fetching weather data: {str(e)}"
 
-# Define the multi-tool schema
+async def get_park_pricing(park_name: str) -> str:
+    return f"For {park_name}, typical entrance fees range from $25-$35 per vehicle."
+
+async def get_parking_info(location: str) -> str:
+    return f"Parking at {location} is typically available at visitor centers and trailheads."
+
+async def get_route_planning(start: str, end: str) -> str:
+    return f"From {start} to {end}: Check Google Maps for the best route."
+
+async def get_travel_itinerary(trip_description: str) -> str:
+    return f"For your trip: {trip_description}. Suggested plan: Day 1 - Travel. Day 2-3 - Explore. Day 4 - Return."
+
 agent_tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_park_alerts",
-            "description": "Get real-time active alerts, trail closures, and hazards for a US National Park.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "park_code": {
-                        "type": "string",
-                        "description": "The exact 4-letter NPS park code (e.g., zion, grca, yose)."
-                    }
-                },
-                "required": ["park_code"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "Get the current live weather forecast for a specific location, city, or National Park.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The city and state, or National Park name (e.g., 'Zion National Park', 'Springdale, UT', 'Los Angeles')."
-                    }
-                },
-                "required": ["location"]
-            }
-        }
-    }
+    {"type": "function", "function": {"name": "get_park_alerts", "description": "Get real-time alerts for a US National Park.", "parameters": {"type": "object", "properties": {"park_code": {"type": "string", "description": "4-letter park code (zion, grca, yose, etc)."}}, "required": ["park_code"]}}},
+    {"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a location.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
+    {"type": "function", "function": {"name": "get_park_pricing", "description": "Get park entrance fees.", "parameters": {"type": "object", "properties": {"park_name": {"type": "string"}}, "required": ["park_name"]}}},
+    {"type": "function", "function": {"name": "get_parking_info", "description": "Get parking info.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
+    {"type": "function", "function": {"name": "get_route_planning", "description": "Plan routes.", "parameters": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start", "end"]}}},
+    {"type": "function", "function": {"name": "get_travel_itinerary", "description": "Create itineraries.", "parameters": {"type": "object", "properties": {"trip_description": {"type": "string"}}, "required": ["trip_description"]}}}
 ]
+
+def get_system_prompt():
+    return """You are a friendly backcountry guide. Be casual and helpful. Keep responses short (1-2 sentences). Only call tools when user asks about specific weather, alerts, pricing, parking, routes, or itineraries. Never fabricate information."""
+
+async def process_llm_response(chat_history):
+    try:
+        response = await llm.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=chat_history,
+            tools=agent_tools,
+            tool_choice="auto",
+            temperature=0.7
+        )
+
+        message = response.choices[0].message
+
+        if message.tool_calls:
+            chat_history.append({"role": "assistant", "content": message.content or "", "tool_calls": message.tool_calls})
+
+            for tool_call in message.tool_calls:
+                args = json.loads(tool_call.function.arguments)
+                tool_name = tool_call.function.name
+
+                if tool_name == "get_park_alerts":
+                    data = await get_park_alerts(args.get("park_code", "zion"))
+                elif tool_name == "get_weather":
+                    data = await get_weather(args.get("location"))
+                elif tool_name == "get_park_pricing":
+                    data = await get_park_pricing(args.get("park_name"))
+                elif tool_name == "get_parking_info":
+                    data = await get_parking_info(args.get("location"))
+                elif tool_name == "get_route_planning":
+                    data = await get_route_planning(args.get("start", ""), args.get("end", ""))
+                elif tool_name == "get_travel_itinerary":
+                    data = await get_travel_itinerary(args.get("trip_description", ""))
+                else:
+                    data = "Tool not recognized."
+
+                chat_history.append({"role": "tool", "tool_call_id": tool_call.id, "name": tool_name, "content": data})
+
+            final_response = await llm.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=chat_history,
+                temperature=0.7
+            )
+            reply = final_response.choices[0].message.content
+        else:
+            reply = message.content or "What can I help you with?"
+
+        # Humanize the response
+        reply = humanize_response(reply)
+        reply = verbalize_entities(reply)
+
+        chat_history.append({"role": "assistant", "content": reply})
+
+        if len(chat_history) > 20:
+            chat_history = [chat_history[0]] + chat_history[-19:]
+
+        return reply, chat_history
+
+    except Exception as e:
+        return f"Error: {str(e)}", chat_history
 
 @app.get("/")
 async def get_interface(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
 
+@app.get("/notifications")
+async def get_notifications():
+    return JSONResponse(notifications_cache)
+
+@app.post("/refresh-notifications")
+async def refresh_notifications():
+    global notifications_cache
+    notifications_cache = await fetch_global_notifications()
+    return JSONResponse(notifications_cache)
+
+@app.post("/search-weather")
+async def search_weather(request: Request):
+    data = await request.json()
+    city = data.get("city", "").strip()
+    
+    if not city:
+        return JSONResponse({"error": "City name required"})
+    
+    api_key = os.getenv("OPENWEATHER_API_KEY")
+    if not api_key:
+        return JSONResponse({"error": "Weather API key not configured"})
+    
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params={"q": city, "units": "imperial", "appid": api_key})
+            data = resp.json()
+            
+            if resp.status_code == 200:
+                temp = data["main"]["temp"]
+                condition = data["weather"][0].get("main", "")
+                desc = data["weather"][0].get("description", "").capitalize()
+                humidity = data["main"].get("humidity", 0)
+                wind = data["wind"].get("speed", 0)
+                feels_like = data["main"].get("feels_like", temp)
+                
+                icon_map = {
+                    "Clear": "☀️", "Clouds": "☁️", "Rain": "🌧️", 
+                    "Snow": "❄️", "Thunderstorm": "⛈️", "Drizzle": "🌦️",
+                    "Mist": "🌫️", "Fog": "🌫️"
+                }
+                icon = icon_map.get(condition, "🌡️")
+                
+                return JSONResponse({
+                    "success": True,
+                    "location": data.get("name", city),
+                    "country": data.get("sys", {}).get("country", ""),
+                    "temp": f"{int(temp)}°F",
+                    "feels_like": f"{int(feels_like)}°F",
+                    "description": desc,
+                    "condition": condition,
+                    "humidity": f"{humidity}%",
+                    "wind": f"{int(wind)} mph",
+                    "icon": icon
+                })
+            else:
+                error = data.get("message", "City not found")
+                return JSONResponse({"error": error}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/chat")
+async def text_chat(request: Request):
+    data = await request.json()
+    user_message = data.get("message", "").strip()
+    if not user_message:
+        return JSONResponse({"response": "Hey, say something!"})
+
+    # Normalize user input
+    user_message = normalize_user_input(user_message)
+
+    chat_history = chat_histories.get("global", [{"role": "system", "content": get_system_prompt()}])
+    chat_history.append({"role": "user", "content": user_message})
+
+    reply, chat_history = await process_llm_response(chat_history)
+    chat_histories["global"] = chat_history
+
+    return JSONResponse({"response": reply})
+
 @app.websocket("/ws/audio")
 async def audio_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("🎙️ WebSocket connection established. Booting Agent...")
-
-    chat_history = [
-        {
-            "role": "system", 
-            "content": (
-                "You are a friendly, casual, and highly knowledgeable travel and outdoor adventure guide. "
-                "Keep your tone relaxed, smooth, and conversational. Speak like a real person helping a friend. "
-                "Only check for weather or park alerts using your tools if the user explicitly asks about current conditions, alerts, closures, or the weather forecast. "
-                "When a tool returns data, seamlessly and casually integrate the exact facts into your response. "
-                "STRICT RULES: Never fabricate or hallucinate details. If a tool doesn't return data or if you don't know, say so honestly. "
-                "Never repeat raw code, function names, JSON, or tags in your spoken response. Keep answers strictly under 2 sentences."
-            )
-        }
-    ]
+    session_id = id(websocket)
+    chat_history = chat_histories.get(session_id, [{"role": "system", "content": get_system_prompt()}])
 
     try:
         dg_connection = deepgram.listen.asyncwebsocket.v("1")
 
         async def on_message(self, result, **kwargs):
             nonlocal chat_history
-            sentence = result.channel.alternatives[0].transcript
-            
-            if sentence and result.is_final:
-                print(f"\n🗣️ You: {sentence}")
-                chat_history.append({"role": "user", "content": sentence})
-                
-                try:
-                    response = await llm.chat.completions.create(
-                        model="llama-3.1-8b-instant",
-                        messages=chat_history,
-                        tools=agent_tools,
-                        tool_choice="auto"
-                    )
+            try:
+                transcript = result.channel.alternatives[0].transcript
+                if transcript and result.is_final:
+                    print(f"🗣️ User (raw): {transcript}")
                     
-                    message = response.choices[0].message
-
-                    if message.tool_calls:
-                        print("🛠️ Agent is accessing live data...")
-                        
-                        chat_history.append(message)
-
-                        for tool_call in message.tool_calls:
-                            args = json.loads(tool_call.function.arguments)
-                            
-                            if tool_call.function.name == "get_park_alerts":
-                                park_code = args.get("park_code", "zion")
-                                data = await get_park_alerts(park_code)
-                                print(f"📡 NPS Data: {data}")
-                                
-                            elif tool_call.function.name == "get_weather":
-                                location = args.get("location", "Grand Canyon")
-                                data = await get_weather(location)
-                                print(f"📡 Weather Data: {data}")
-
-                            chat_history.append({
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "name": tool_call.function.name,
-                                "content": data
-                            })
-
-                        final_response = await llm.chat.completions.create(
-                            model="llama-3.1-8b-instant",
-                            messages=chat_history
-                        )
-                        reply = final_response.choices[0].message.content
-                    else:
-                        reply = message.content
-
-                    print(f"🏕️ Guide: {reply}\n")
-                    chat_history.append({"role": "assistant", "content": reply})
+                    # Normalize STT output
+                    normalized_transcript = normalize_user_input(transcript)
+                    print(f"🗣️ User (normalized): {normalized_transcript}")
+                    
+                    chat_history.append({"role": "user", "content": normalized_transcript})
+                    reply, chat_history = await process_llm_response(chat_history)
+                    print(f"🏕️ Guide: {reply}")
                     await websocket.send_text(reply)
-                    
-                    if len(chat_history) > 15:
-                        chat_history = [chat_history[0]] + chat_history[-14:]
-
-                except Exception as e:
-                    print(f"❌ Groq Error: {e}")
+            except Exception as e:
+                print(f"Error: {e}")
 
         async def on_error(self, error, **kwargs):
             print(f"Deepgram Error: {error}")
@@ -189,31 +256,30 @@ async def audio_websocket_endpoint(websocket: WebSocket):
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_message)
         dg_connection.on(LiveTranscriptionEvents.Error, on_error)
 
-        options = LiveOptions(
-            model="nova-2",
-            language="en-US",
-            smart_format=True,
-            interim_results=False,
-            endpointing=500,
-            keywords=["Zion:3", "Bryce:2", "Grand Canyon:2", "Yosemite:2", "Delray Beach:2"]
-        )
+        options = LiveOptions(model="nova-2", language="en-US", smart_format=True, interim_results=True, endpointing=300, vad_events=True)
 
         if await dg_connection.start(options) is False:
-            print("❌ Failed to connect to Deepgram")
             return
-
-        print("🟢 Agent Online. Ready for your coordinates.")
 
         while True:
             audio_bytes = await websocket.receive_bytes()
             await dg_connection.send(audio_bytes)
 
     except WebSocketDisconnect:
-        print("🔌 Client disconnected.")
+        chat_histories[session_id] = chat_history
     except Exception as e:
-        print(f"❌ Server Error: {e}")
+        print(f"Error: {e}")
     finally:
         await dg_connection.finish()
+
+async def startup_notifications():
+    global notifications_cache
+    notifications_cache = await fetch_global_notifications()
+    print("✅ Notifications loaded")
+
+@app.on_event("startup")
+async def startup_event():
+    await startup_notifications()
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -3,71 +3,944 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Backcountry Route Coordinator</title>
+    <title>🏕️ Backcountry Route Coordinator</title>
     <style>
-        body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #121212; color: white; margin: 0; padding: 20px; }
-        button { padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; margin: 10px; transition: 0.3s; }
-        #startBtn { background-color: #28a745; color: white; }
-        #startBtn:disabled { background-color: #555; cursor: not-allowed; }
-        #stopBtn { background-color: #dc3545; color: white; }
-        #stopBtn:disabled { background-color: #555; cursor: not-allowed; }
-        #status { margin-top: 20px; font-family: monospace; color: #aaa; }
-        #chat-box { margin-top: 30px; max-width: 600px; width: 100%; background: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333; min-height: 100px; }
-        .speaker-label { font-weight: bold; color: #28a745; margin-bottom: 5px; }
-        #response-text { line-height: 1.6; color: #eee; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a2463 0%, #247ba0 50%, #06a77d 100%);
+            background-attachment: fixed;
+            color: #f0f0f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: radial-gradient(circle at 20% 50%, rgba(36, 123, 160, 0.2) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 167, 125, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        header {
+            background: rgba(10, 36, 99, 0.6);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid rgba(36, 211, 212, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            position: relative;
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title {
+            flex: 1;
+            text-align: center;
+        }
+
+        header h1 { 
+            font-size: 32px; 
+            font-weight: bold; 
+            margin-bottom: 5px;
+            background: linear-gradient(135deg, #00d4ff, #0099ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        header p { font-size: 12px; color: #b0e0e6; }
+
+        #notificationBtn {
+            background: rgba(0, 212, 255, 0.2);
+            border: 2px solid rgba(0, 212, 255, 0.5);
+            color: #00d4ff;
+            font-size: 24px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            position: relative;
+        }
+
+        #notificationBtn:hover {
+            background: rgba(0, 212, 255, 0.4);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ff6b6b;
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        #notificationSidebar {
+            position: fixed;
+            right: -400px;
+            top: 0;
+            width: 400px;
+            height: 100vh;
+            background: rgba(10, 36, 99, 0.95);
+            backdrop-filter: blur(20px);
+            border-left: 2px solid rgba(0, 212, 255, 0.3);
+            z-index: 999;
+            transition: right 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+        }
+
+        #notificationSidebar.open {
+            right: 0;
+        }
+
+        .notification-header {
+            padding: 20px;
+            border-bottom: 2px solid rgba(0, 212, 255, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .notification-header h2 {
+            color: #00d4ff;
+            font-size: 18px;
+        }
+
+        .notification-close {
+            background: none;
+            border: none;
+            color: #00d4ff;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .notification-close:hover {
+            transform: rotate(90deg);
+        }
+
+        .notification-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            padding: 0 20px;
+            overflow-x: auto;
+        }
+
+        .notif-tab {
+            flex: 1;
+            padding: 15px 10px;
+            background: none;
+            border: none;
+            color: #b0e0e6;
+            cursor: pointer;
+            font-weight: bold;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            text-align: center;
+            white-space: nowrap;
+            font-size: 12px;
+        }
+
+        .notif-tab.active {
+            color: #00d4ff;
+            border-bottom-color: #00d4ff;
+        }
+
+        .notif-tab:hover {
+            color: #00d4ff;
+        }
+
+        .notification-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .notification-item {
+            background: rgba(36, 123, 160, 0.2);
+            border-left: 4px solid #00d4ff;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-radius: 6px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .notification-item.weather {
+            border-left-color: #ff9800;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .notif-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .notif-title {
+            color: #00d4ff;
+            font-weight: bold;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        .notif-weather .notif-title {
+            color: #ff9800;
+        }
+
+        .notif-desc {
+            color: #b0e0e6;
+            font-size: 12px;
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+
+        .notif-meta {
+            font-size: 11px;
+            color: #888;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .notif-temp {
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+        .notif-content-section {
+            display: none;
+        }
+
+        .notif-content-section.active {
+            display: block;
+        }
+
+        .search-container {
+            padding: 15px 0;
+        }
+
+        #searchCity {
+            width: 100%;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 6px;
+            color: #f0f0f0;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        #searchCity::placeholder {
+            color: rgba(176, 224, 230, 0.6);
+        }
+
+        #searchCity:focus {
+            outline: none;
+            border-color: #00d4ff;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+        }
+
+        #searchBtn {
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(135deg, #00d4ff, #0099ff);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+
+        #searchBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+        }
+
+        #searchResult {
+            margin-top: 15px;
+        }
+
+        .refresh-btn {
+            background: rgba(0, 212, 255, 0.2);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            color: #00d4ff;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(0, 212, 255, 0.4);
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+
+        .sidebar {
+            flex: 0 0 280px;
+            background: rgba(36, 123, 160, 0.15);
+            backdrop-filter: blur(20px);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            overflow-y: auto;
+            max-height: 70vh;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .sidebar:hover {
+            background: rgba(36, 123, 160, 0.2);
+            border-color: rgba(0, 212, 255, 0.4);
+        }
+
+        .sidebar h3 { 
+            color: #00d4ff; 
+            font-size: 14px; 
+            margin-bottom: 15px; 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+        }
+
+        .capability {
+            margin-bottom: 15px;
+            padding: 12px;
+            background: rgba(0, 212, 255, 0.1);
+            border-left: 3px solid #00d4ff;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .capability:hover {
+            background: rgba(0, 212, 255, 0.2);
+            transform: translateX(5px);
+        }
+
+        .capability-title { font-weight: bold; color: #00d4ff; font-size: 13px; margin-bottom: 5px; }
+        .capability-desc { font-size: 11px; color: #b0e0e6; line-height: 1.4; }
+
+        .main-content { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+
+        .chat-container {
+            flex: 1;
+            background: rgba(10, 36, 99, 0.2);
+            backdrop-filter: blur(20px);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        #chat-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message { display: flex; gap: 10px; animation: slideIn 0.3s ease-out; }
+
+        .message.user { justify-content: flex-end; }
+
+        .message-bubble {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+        }
+
+        .message.agent .message-bubble { 
+            background: rgba(6, 167, 125, 0.3);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            color: #e8f5e9; 
+        }
+
+        .message.user .message-bubble { 
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.4), rgba(36, 211, 212, 0.3));
+            color: #fff; 
+            border: 1px solid rgba(0, 212, 255, 0.5);
+            border-radius: 18px 18px 4px 18px;
+        }
+
+        .speaker-label { font-size: 12px; color: #00d4ff; margin-bottom: 4px; }
+
+        .input-section { 
+            background: rgba(10, 36, 99, 0.2);
+            backdrop-filter: blur(20px);
+            border-radius: 12px; 
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .input-tabs { display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid rgba(0, 212, 255, 0.2); }
+
+        .tab-button {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            color: #b0e0e6;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab-button.active { 
+            color: #00d4ff; 
+            border-bottom-color: #00d4ff;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .voice-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+        button {
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        #startBtn { 
+            background: linear-gradient(135deg, #00d4ff, #0099ff);
+            color: white; 
+            flex: 1; 
+            justify-content: center;
+        }
+
+        #startBtn:hover:not(:disabled) { 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 212, 255, 0.4);
+        }
+
+        #startBtn:disabled { background: rgba(100, 100, 100, 0.5); cursor: not-allowed; }
+
+        #stopBtn { 
+            background: linear-gradient(135deg, #ff6b6b, #ff4757);
+            color: white; 
+            flex: 1; 
+            justify-content: center;
+        }
+
+        #stopBtn:hover:not(:disabled) { 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+        }
+
+        #stopBtn:disabled { background: rgba(100, 100, 100, 0.5); cursor: not-allowed; }
+
+        #muteBtn { 
+            background: rgba(100, 150, 200, 0.3);
+            color: white; 
+            padding: 10px 15px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        #muteBtn.muted { 
+            background: linear-gradient(135deg, #ff9800, #ff6b35);
+            border-color: rgba(255, 152, 0, 0.5);
+        }
+
+        .text-input-section { display: flex; gap: 10px; }
+
+        #textInput {
+            flex: 1;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            border-radius: 8px;
+            color: #f0f0f0;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+        }
+
+        #textInput::placeholder { color: rgba(176, 224, 230, 0.6); }
+
+        #textInput:focus { 
+            outline: none; 
+            border-color: #00d4ff;
+            background: rgba(0, 212, 255, 0.1);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.3);
+        }
+
+        #sendBtn { 
+            background: linear-gradient(135deg, #00d4ff, #0099ff);
+            color: white; 
+            padding: 12px 24px;
+        }
+
+        #sendBtn:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 212, 255, 0.4);
+        }
+
+        #status { 
+            font-family: monospace; 
+            font-size: 12px; 
+            color: #b0e0e6; 
+            margin-top: 10px;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.online { background: #00d4ff; box-shadow: 0 0 10px #00d4ff; }
+        .status-dot.offline { background: #ff6b6b; box-shadow: 0 0 10px #ff6b6b; }
+        .status-dot.recording { background: #ff9800; animation: pulse-fast 0.5s infinite; }
+        .status-dot.listening { background: #00ffff; animation: pulse-fast 0.5s infinite; }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        @keyframes pulse-fast { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        @media (max-width: 1024px) {
+            .container { flex-direction: column; }
+            .sidebar { flex: 0 0 auto; max-height: none; }
+            .message-bubble { max-width: 100%; }
+            #notificationSidebar { width: 100%; }
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 212, 255, 0.1); }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 212, 255, 0.4); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0, 212, 255, 0.6); }
     </style>
 </head>
 <body>
+    <header>
+        <div class="header-title">
+            <h1>🏕️ Backcountry Route Coordinator</h1>
+            <p>Your friendly outdoor adventure guide</p>
+        </div>
+        <button id="notificationBtn">
+            🔔
+            <span class="notification-badge" id="notifBadge">0</span>
+        </button>
+    </header>
 
-    <h1>🏕️ Backcountry Agent</h1>
-    <div>
-        <button id="startBtn">Start Talking</button>
-        <button id="stopBtn" disabled>Stop</button>
+    <div id="notificationSidebar">
+        <div class="notification-header">
+            <h2>📢 Alerts & Updates</h2>
+            <button class="notification-close" onclick="toggleNotifications()">✕</button>
+        </div>
+
+        <div class="notification-tabs">
+            <button class="notif-tab active" onclick="switchNotifTab(event, 'alerts')">🏞️ Alerts</button>
+            <button class="notif-tab" onclick="switchNotifTab(event, 'weather')">🌤️ Weather</button>
+            <button class="notif-tab" onclick="switchNotifTab(event, 'search')">🔍 Search</button>
+        </div>
+
+        <div class="notification-content">
+            <div id="alerts" class="notif-content-section active"></div>
+            <div id="weather" class="notif-content-section"></div>
+            
+            <div id="search" class="notif-content-section">
+                <div class="search-container">
+                    <input type="text" id="searchCity" placeholder="Enter city name...">
+                    <button id="searchBtn" onclick="searchWeather()">🔍 Search</button>
+                    <div id="searchResult"></div>
+                </div>
+            </div>
+
+            <button class="refresh-btn" onclick="refreshNotifications()">🔄 Refresh Now</button>
+        </div>
     </div>
-    <div id="status">Status: Waiting to connect...</div>
 
-    <div id="chat-box">
-        <div class="speaker-label">🏕️ Guide:</div>
-        <div id="response-text">Click "Start Talking" and speak into your microphone...</div>
+    <div class="container">
+        <aside class="sidebar">
+            <h3>🎯 What I Can Do</h3>
+            <div class="capability">
+                <div class="capability-title">🏞️ Park Info</div>
+                <div class="capability-desc">Real-time alerts, pricing, parking, seasonal notifications</div>
+            </div>
+            <div class="capability">
+                <div class="capability-title">🗺️ Route Planning</div>
+                <div class="capability-desc">Calculate distances, driving times, best routes</div>
+            </div>
+            <div class="capability">
+                <div class="capability-title">🌤️ Weather</div>
+                <div class="capability-desc">Current conditions, forecasts, alerts</div>
+            </div>
+            <div class="capability">
+                <div class="capability-title">📋 Travel Itineraries</div>
+                <div class="capability-desc">Plan multi-day trips, suggest stops, activities</div>
+            </div>
+            <hr style="margin: 20px 0; border: 1px solid rgba(0, 212, 255, 0.2);">
+            <h3>💡 Try Asking</h3>
+            <ul style="list-style: none; font-size: 12px; color: #b0e0e6; line-height: 2;">
+                <li>✓ "What's the weather in Moab?"</li>
+                <li>✓ "Tell me about Zion alerts"</li>
+                <li>✓ "Route to Yellowstone"</li>
+                <li>✓ "Plan a 3-day Utah trip"</li>
+            </ul>
+        </aside>
+
+        <div class="main-content">
+            <div class="chat-container">
+                <div id="chat-log"></div>
+            </div>
+
+            <div class="input-section">
+                <div class="input-tabs">
+                    <button class="tab-button active" onclick="switchTab('voice')">🎤 Voice (Primary)</button>
+                    <button class="tab-button" onclick="switchTab('text')">⌨️ Text (Secondary)</button>
+                </div>
+
+                <div id="voice" class="tab-content active">
+                    <div class="voice-controls">
+                        <button id="startBtn">🎤 Start Talking</button>
+                        <button id="stopBtn" disabled>⏹️ Stop</button>
+                        <button id="muteBtn">🔊 Mute</button>
+                    </div>
+                </div>
+
+                <div id="text" class="tab-content">
+                    <div class="text-input-section">
+                        <input type="text" id="textInput" placeholder="Type your question...">
+                        <button id="sendBtn">Send</button>
+                    </div>
+                </div>
+
+                <div id="status">
+                    <span class="status-dot offline"></span>
+                    <span>Connecting...</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        let mediaRecorder;
-        let socket;
+        let mediaRecorder, socket, isMuted = false, isAgentSpeaking = false, shouldContinueWordDisplay = false;
+        let audioContext, analyser, wordDisplayTimeouts = [];
+        
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const muteBtn = document.getElementById('muteBtn');
+        const textInput = document.getElementById('textInput');
+        const sendBtn = document.getElementById('sendBtn');
         const statusDiv = document.getElementById('status');
-        const responseText = document.getElementById('response-text');
+        const chatLog = document.getElementById('chat-log');
+        const notificationBtn = document.getElementById('notificationBtn');
+        const notificationSidebar = document.getElementById('notificationSidebar');
+
+        function toggleNotifications() {
+            notificationSidebar.classList.toggle('open');
+        }
+
+        notificationBtn.onclick = toggleNotifications;
+
+        function switchNotifTab(event, tab) {
+            document.querySelectorAll('.notif-tab').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.notif-content-section').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(tab).classList.add('active');
+        }
+
+        async function refreshNotifications() {
+            try {
+                const resp = await fetch('/refresh-notifications', { method: 'POST' });
+                const data = await resp.json();
+                displayNotifications(data);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function displayNotifications(data) {
+            const alertsDiv = document.getElementById('alerts');
+            const weatherDiv = document.getElementById('weather');
+
+            alertsDiv.innerHTML = '';
+            weatherDiv.innerHTML = '';
+
+            if (data.alerts && data.alerts.length > 0) {
+                data.alerts.forEach(alert => {
+                    const item = document.createElement('div');
+                    item.className = 'notification-item';
+                    item.innerHTML = `
+                        <div class="notif-icon">${alert.icon}</div>
+                        <div class="notif-title">${alert.park} - ${alert.title}</div>
+                        <div class="notif-desc">${alert.description}</div>
+                        <div class="notif-meta"><span>Park Alert</span></div>
+                    `;
+                    alertsDiv.appendChild(item);
+                });
+            } else {
+                alertsDiv.innerHTML = '<p style="color: #888; text-align: center; padding: 20px;">No recent park alerts</p>';
+            }
+
+            if (data.weather && data.weather.length > 0) {
+                data.weather.forEach(weather => {
+                    const item = document.createElement('div');
+                    item.className = 'notification-item weather';
+                    item.innerHTML = `
+                        <div class="notif-icon">${weather.icon}</div>
+                        <div class="notif-title">${weather.location}</div>
+                        <div class="notif-desc">${weather.description}</div>
+                        <div class="notif-meta">
+                            <span class="notif-temp">${weather.temp}</span>
+                            <span>💨 ${weather.wind} | 💧 ${weather.humidity}</span>
+                        </div>
+                    `;
+                    weatherDiv.appendChild(item);
+                });
+            } else {
+                weatherDiv.innerHTML = '<p style="color: #888; text-align: center; padding: 20px;">No weather data</p>';
+            }
+
+            const totalCount = (data.alerts || []).length + (data.weather || []).length;
+            document.getElementById('notifBadge').textContent = totalCount;
+        }
+
+        async function searchWeather() {
+            const city = document.getElementById('searchCity').value.trim();
+            const resultDiv = document.getElementById('searchResult');
+            
+            if (!city) {
+                resultDiv.innerHTML = '<p style="color: #ff6b6b;">Please enter a city name</p>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<p style="color: #00d4ff;">Searching...</p>';
+            
+            try {
+                const resp = await fetch('/search-weather', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ city })
+                });
+                
+                const data = await resp.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="notification-item" style="border-left-color: #ff9800;">
+                            <div class="notif-icon">${data.icon}</div>
+                            <div class="notif-title">${data.location}, ${data.country}</div>
+                            <div class="notif-desc">${data.description}</div>
+                            <div style="margin-top: 10px; font-size: 12px; color: #b0e0e6;">
+                                <div><span style="color: #00ffff; font-weight: bold;">${data.temp}</span> (feels like ${data.feels_like})</div>
+                                <div>💨 Wind: ${data.wind}</div>
+                                <div>💧 Humidity: ${data.humidity}</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `<p style="color: #ff6b6b;">❌ ${data.error}</p>`;
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `<p style="color: #ff6b6b;">Error: ${err.message}</p>`;
+            }
+        }
+
+        document.getElementById('searchCity').onkeypress = (e) => {
+            if (e.key === 'Enter') searchWeather();
+        };
+
+        async function loadNotifications() {
+            try {
+                const resp = await fetch('/notifications');
+                const data = await resp.json();
+                displayNotifications(data);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(tab).classList.add('active');
+        }
+
+        function addMessage(speaker, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${speaker}`;
+            const label = document.createElement('div');
+            label.className = 'speaker-label';
+            label.textContent = speaker === 'agent' ? '🏕️ Guide' : '👤 You';
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.textContent = text;
+            messageDiv.appendChild(label);
+            messageDiv.appendChild(bubble);
+            chatLog.appendChild(messageDiv);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+        function displayWordByWord(text) {
+            wordDisplayTimeouts.forEach(t => clearTimeout(t));
+            wordDisplayTimeouts = [];
+
+            const words = text.split(' ');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message agent';
+            const label = document.createElement('div');
+            label.className = 'speaker-label';
+            label.textContent = '🏕️ Guide';
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.textContent = '';
+            messageDiv.appendChild(label);
+            messageDiv.appendChild(bubble);
+            chatLog.appendChild(messageDiv);
+
+            const estimatedDuration = (words.length / 150) * 60 * 1000;
+            const delayPerWord = estimatedDuration / words.length;
+
+            shouldContinueWordDisplay = true;
+
+            words.forEach((word, index) => {
+                const timeout = setTimeout(() => {
+                    if (!shouldContinueWordDisplay) return;
+                    bubble.textContent += (index === 0 ? '' : ' ') + word;
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                }, delayPerWord * index);
+                wordDisplayTimeouts.push(timeout);
+            });
+        }
+
+        function interruptAgent() {
+            shouldContinueWordDisplay = false;
+            wordDisplayTimeouts.forEach(t => clearTimeout(t));
+            wordDisplayTimeouts = [];
+            window.speechSynthesis.cancel();
+            isAgentSpeaking = false;
+            updateStatus("Listening 👂", "listening");
+        }
+
+        function detectVoiceInput() {
+            if (!mediaRecorder || !audioContext || !isAgentSpeaking) return;
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            if (average > 50) {
+                interruptAgent();
+            }
+        }
 
         function initWebSocket() {
             const protocol = window.location.protocol === "https:" ? "wss" : "ws";
             const wsUrl = `${protocol}://${window.location.host}/ws/audio`;
-            
             socket = new WebSocket(wsUrl);
-            socket.onopen = () => { statusDiv.innerText = "Status: WebSocket Connected 🟢"; };
-            
-            // 🔊 LISTEN FOR TEXT FROM SERVER AND SPEAK IT
+            socket.onopen = () => updateStatus("Connected 🟢", "online");
             socket.onmessage = (event) => {
                 const text = event.data;
-                responseText.innerText = text;
-                
-                // Trigger Browser Text-to-Speech
-                const utterance = new SpeechSynthesisUtterance(text);
-                // Optional: choose a rugged-sounding voice if available
-                const voices = window.speechSynthesis.getVoices();
-                const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
-                if (defaultVoice) utterance.voice = defaultVoice;
-                
-                window.speechSynthesis.speak(utterance);
-            };
+                isAgentSpeaking = true;
+                shouldContinueWordDisplay = true;
 
-            socket.onclose = () => { statusDiv.innerText = "Status: WebSocket Disconnected 🔴"; };
+                if (!isMuted) {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    const voices = window.speechSynthesis.getVoices();
+                    const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                    if (defaultVoice) utterance.voice = defaultVoice;
+                    utterance.onend = () => {
+                        if (shouldContinueWordDisplay) {
+                            isAgentSpeaking = false;
+                            updateStatus("Ready 🟢", "online");
+                        }
+                    };
+                    window.speechSynthesis.speak(utterance);
+                }
+
+                displayWordByWord(text);
+            };
+            socket.onclose = () => updateStatus("Disconnected 🔴", "offline");
+        }
+
+        function updateStatus(message, status) {
+            statusDiv.innerHTML = `<span class="status-dot ${status}"></span><span>${message}</span>`;
         }
 
         startBtn.onclick = async () => {
-            if (!socket || socket.readyState !== WebSocket.OPEN) { initWebSocket(); }
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                initWebSocket();
+                setTimeout(() => startRecording(), 500);
+            } else {
+                startRecording();
+            }
+        };
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+
                 mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
@@ -75,29 +948,81 @@
                     }
                 };
                 mediaRecorder.start(250);
+
+                const voiceDetectionInterval = setInterval(() => {
+                    if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                        clearInterval(voiceDetectionInterval);
+                        return;
+                    }
+                    detectVoiceInput();
+                }, 50);
+
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
-                statusDiv.innerText = "Status: Recording and Streaming... 🎙️";
-            } catch (err) {
-                console.error("Error accessing microphone:", err);
-                statusDiv.innerText = "Error: Microphone access denied.";
-            }
-        };
+                updateStatus("Recording and Listening 🎙️", "recording");
+            }).catch(err => updateStatus("Microphone access denied", "offline"));
+        }
 
         stopBtn.onclick = () => {
             if (mediaRecorder && mediaRecorder.state !== "inactive") {
                 mediaRecorder.stop();
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
             }
+            interruptAgent();
             startBtn.disabled = false;
             stopBtn.disabled = true;
-            statusDiv.innerText = "Status: Stopped.";
-            window.speechSynthesis.cancel(); // Stop talking if user clicks stop
+            updateStatus("Ready 🟢", "online");
         };
 
-        window.onload = initWebSocket;
-        // Pre-load voices for speech synthesis
-        window.speechSynthesis.getVoices();
+        muteBtn.onclick = () => {
+            isMuted = !isMuted;
+            muteBtn.classList.toggle('muted', isMuted);
+            muteBtn.textContent = isMuted ? '🔇 Unmute' : '🔊 Mute';
+            if (isMuted) window.speechSynthesis.cancel();
+        };
+
+        sendBtn.onclick = () => {
+            const text = textInput.value.trim();
+            if (!text) return;
+            interruptAgent();
+            addMessage('user', text);
+            textInput.value = '';
+            fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text })
+            })
+            .then(r => r.json())
+            .then(data => {
+                isAgentSpeaking = true;
+                shouldContinueWordDisplay = true;
+                if (!isMuted) {
+                    const utterance = new SpeechSynthesisUtterance(data.response);
+                    const voices = window.speechSynthesis.getVoices();
+                    const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                    if (defaultVoice) utterance.voice = defaultVoice;
+                    utterance.onend = () => {
+                        if (shouldContinueWordDisplay) {
+                            isAgentSpeaking = false;
+                        }
+                    };
+                    window.speechSynthesis.speak(utterance);
+                }
+                displayWordByWord(data.response);
+            })
+            .catch(err => console.error(err));
+        };
+
+        textInput.onkeypress = (e) => {
+            if (e.key === 'Enter') sendBtn.onclick();
+        };
+
+        window.onload = () => {
+            initWebSocket();
+            window.speechSynthesis.getVoices();
+            loadNotifications();
+            setInterval(loadNotifications, 300000);
+        };
     </script>
 </body>
 </html>
