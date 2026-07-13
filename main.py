@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 from groq import AsyncGroq
@@ -16,6 +17,7 @@ load_dotenv()
 
 app = FastAPI(title="Backcountry Route Coordinator")
 templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 deepgram = DeepgramClient(os.getenv("DEEPGRAM_API_KEY"))
 llm = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
@@ -125,7 +127,6 @@ async def process_llm_response(chat_history):
         else:
             reply = message.content or "What can I help you with?"
 
-        # Humanize the response
         reply = humanize_response(reply)
         reply = verbalize_entities(reply)
 
@@ -212,7 +213,6 @@ async def text_chat(request: Request):
     if not user_message:
         return JSONResponse({"response": "Hey, say something!"})
 
-    # Normalize user input
     user_message = normalize_user_input(user_message)
 
     chat_history = chat_histories.get("global", [{"role": "system", "content": get_system_prompt()}])
@@ -239,7 +239,6 @@ async def audio_websocket_endpoint(websocket: WebSocket):
                 if transcript and result.is_final:
                     print(f"🗣️ User (raw): {transcript}")
                     
-                    # Normalize STT output
                     normalized_transcript = normalize_user_input(transcript)
                     print(f"🗣️ User (normalized): {normalized_transcript}")
                     
