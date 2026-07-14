@@ -17,14 +17,9 @@
         try {
             const keyword = outdoorKeywords[Math.floor(Math.random() * outdoorKeywords.length)];
             
-            // Using Pexels CDN (no API key needed)
-            const imageUrl = `https://images.pexels.com/photos/3714896/pexels-photo-3714896.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1080&dpr=1`;
-            
-            // Alternative: Use random number for variety
             const randomId = Math.floor(Math.random() * 50000);
             const backupUrl = `https://picsum.photos/1920/1080?random=${randomId}&${keyword}`;
             
-            // Set background with fallback
             const bg = `linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), url('${backupUrl}')`;
             document.body.style.backgroundImage = bg;
             document.body.style.backgroundSize = 'cover';
@@ -37,14 +32,12 @@
         }
     }
 
-    // Load on page start
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', setRandomBackground);
     } else {
         setRandomBackground();
     }
     
-    // Change every 10 minutes
     setInterval(setRandomBackground, 10 * 60 * 1000);
 </script>
 
@@ -124,8 +117,8 @@
 
             <div class="input-section">
                 <div class="input-tabs">
-                    <button class="tab-button active" onclick="switchTab('voice')">🎤 Voice (Primary)</button>
-                    <button class="tab-button" onclick="switchTab('text')">⌨️ Text (Secondary)</button>
+                    <button class="tab-button active" onclick="switchTab('voice', event)">🎤 Voice (Primary)</button>
+                    <button class="tab-button" onclick="switchTab('text', event)">⌨️ Text (Secondary)</button>
                 </div>
 
                 <div id="voice" class="tab-content active">
@@ -289,10 +282,10 @@
             }
         }
 
-        function switchTab(tab) {
+        function switchTab(tab, event) {
             document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            event.target.classList.add('active');
+            event.currentTarget.classList.add('active');
             document.getElementById(tab).classList.add('active');
         }
 
@@ -368,25 +361,50 @@
             socket = new WebSocket(wsUrl);
             socket.onopen = () => updateStatus("Connected 🟢", "online");
             socket.onmessage = (event) => {
-                const text = event.data;
-                isAgentSpeaking = true;
-                shouldContinueWordDisplay = true;
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === "user") {
+                        addMessage('user', data.text);
+                    } else if (data.type === "agent") {
+                        isAgentSpeaking = true;
+                        shouldContinueWordDisplay = true;
 
-                if (!isMuted) {
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    const voices = window.speechSynthesis.getVoices();
-                    const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
-                    if (defaultVoice) utterance.voice = defaultVoice;
-                    utterance.onend = () => {
-                        if (shouldContinueWordDisplay) {
-                            isAgentSpeaking = false;
-                            updateStatus("Ready 🟢", "online");
+                        if (!isMuted) {
+                            const utterance = new SpeechSynthesisUtterance(data.text);
+                            const voices = window.speechSynthesis.getVoices();
+                            const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                            if (defaultVoice) utterance.voice = defaultVoice;
+                            utterance.onend = () => {
+                                if (shouldContinueWordDisplay) {
+                                    isAgentSpeaking = false;
+                                    updateStatus("Ready 🟢", "online");
+                                }
+                            };
+                            window.speechSynthesis.speak(utterance);
                         }
-                    };
-                    window.speechSynthesis.speak(utterance);
-                }
 
-                displayWordByWord(text);
+                        displayWordByWord(data.text);
+                    }
+                } catch (e) {
+                    const text = event.data;
+                    isAgentSpeaking = true;
+                    shouldContinueWordDisplay = true;
+
+                    if (!isMuted) {
+                        const utterance = new SpeechSynthesisUtterance(text);
+                        const voices = window.speechSynthesis.getVoices();
+                        const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+                        if (defaultVoice) utterance.voice = defaultVoice;
+                        utterance.onend = () => {
+                            if (shouldContinueWordDisplay) {
+                                isAgentSpeaking = false;
+                            }
+                        };
+                        window.speechSynthesis.speak(utterance);
+                    }
+                    displayWordByWord(text);
+                }
             };
             socket.onclose = () => updateStatus("Disconnected 🔴", "offline");
         }
