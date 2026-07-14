@@ -12,6 +12,7 @@ from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 from groq import AsyncGroq
 from notifications import fetch_global_notifications
 from text_processing import normalize_user_input, humanize_response, verbalize_entities
+from tools import get_park_alerts, get_weather, get_travel_recommendations
 
 load_dotenv()
 
@@ -26,37 +27,37 @@ chat_histories = {}
 active_utterances = {}
 notifications_cache = {"alerts": [], "weather": [], "timestamp": None}
 
-async def get_park_alerts(park_code: str) -> str:
-    api_key = os.getenv("NPS_API_KEY")
-    if not api_key: return "NPS API Key missing."
-    url = f"https://developer.nps.gov/api/v1/alerts?parkCode={park_code}&api_key={api_key}"
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url)
-            data = resp.json()
-            if not data.get("data"): return f"No active alerts for {park_code} right now."
-            alerts = [item["title"] for item in data["data"][:2]]
-            return f"Active alerts for {park_code}: {', '.join(alerts)}"
-    except Exception as e:
-        return f"Error fetching NPS data: {str(e)}"
+# async def get_park_alerts(park_code: str) -> str:
+#     api_key = os.getenv("NPS_API_KEY")
+#     if not api_key: return "NPS API Key missing."
+#     url = f"https://developer.nps.gov/api/v1/alerts?parkCode={park_code}&api_key={api_key}"
+#     try:
+#         async with httpx.AsyncClient() as client:
+#             resp = await client.get(url)
+#             data = resp.json()
+#             if not data.get("data"): return f"No active alerts for {park_code} right now."
+#             alerts = [item["title"] for item in data["data"][:2]]
+#             return f"Active alerts for {park_code}: {', '.join(alerts)}"
+#     except Exception as e:
+#         return f"Error fetching NPS data: {str(e)}"
 
-async def get_weather(location: str) -> str:
-    api_key = os.getenv("OPENWEATHER_API_KEY")
-    if not api_key or api_key == "your_openweather_key_here":
-        return "OpenWeather API Key is missing."
-    url = "https://api.openweathermap.org/data/2.5/weather"
-    query_params = {"q": location, "units": "imperial", "appid": api_key}
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=query_params)
-            data = resp.json()
-            if resp.status_code != 200:
-                return f"Could not find weather for {location}."
-            temp = data["main"]["temp"]
-            desc = data["weather"][0]["description"]
-            return f"Current weather in {location}: {temp}°F and {desc}."
-    except Exception as e:
-        return f"Error fetching weather data: {str(e)}"
+# async def get_weather(location: str) -> str:
+#     api_key = os.getenv("OPENWEATHER_API_KEY")
+#     if not api_key or api_key == "your_openweather_key_here":
+#         return "OpenWeather API Key is missing."
+#     url = "https://api.openweathermap.org/data/2.5/weather"
+#     query_params = {"q": location, "units": "imperial", "appid": api_key}
+#     try:
+#         async with httpx.AsyncClient() as client:
+#             resp = await client.get(url, params=query_params)
+#             data = resp.json()
+#             if resp.status_code != 200:
+#                 return f"Could not find weather for {location}."
+#             temp = data["main"]["temp"]
+#             desc = data["weather"][0]["description"]
+#             return f"Current weather in {location}: {temp}°F and {desc}."
+#     except Exception as e:
+#         return f"Error fetching weather data: {str(e)}"
 
 async def get_park_pricing(park_name: str) -> str:
     return f"For {park_name}, typical entrance fees range from $25-$35 per vehicle."
@@ -64,23 +65,35 @@ async def get_park_pricing(park_name: str) -> str:
 async def get_parking_info(location: str) -> str:
     return f"Parking at {location} is typically available at visitor centers and trailheads."
 
-async def get_route_planning(start: str, end: str) -> str:
-    return f"From {start} to {end}: Check Google Maps for the best route."
-
 async def get_travel_itinerary(trip_description: str) -> str:
     return f"For your trip: {trip_description}. Suggested plan: Day 1 - Travel. Day 2-3 - Explore. Day 4 - Return."
 
 agent_tools = [
+    {"type": "function", "function": {"name": "get_travel_recommendations", "description": "Get realistic travel recommendations and distance between two cities.", "parameters": {"type": "object", "properties": {"origin": {"type": "string", "description": "Starting city"}, "destination": {"type": "string", "description": "Destination city"}}, "required": ["origin", "destination"]}}},
     {"type": "function", "function": {"name": "get_park_alerts", "description": "Get real-time alerts for a US National Park.", "parameters": {"type": "object", "properties": {"park_code": {"type": "string", "description": "4-letter park code (zion, grca, yose, etc)."}}, "required": ["park_code"]}}},
     {"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a location.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
     {"type": "function", "function": {"name": "get_park_pricing", "description": "Get park entrance fees.", "parameters": {"type": "object", "properties": {"park_name": {"type": "string"}}, "required": ["park_name"]}}},
     {"type": "function", "function": {"name": "get_parking_info", "description": "Get parking info.", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
-    {"type": "function", "function": {"name": "get_route_planning", "description": "Plan routes.", "parameters": {"type": "object", "properties": {"start": {"type": "string"}, "end": {"type": "string"}}, "required": ["start", "end"]}}},
     {"type": "function", "function": {"name": "get_travel_itinerary", "description": "Create itineraries.", "parameters": {"type": "object", "properties": {"trip_description": {"type": "string"}}, "required": ["trip_description"]}}}
 ]
 
 def get_system_prompt():
-    return """You are a friendly backcountry guide. Be casual and helpful. Keep responses short (1-2 sentences). Only call tools when user asks about specific weather, alerts, pricing, parking, routes, or itineraries. Never fabricate information."""
+    return """You are a friendly backcountry guide. Be casual and helpful. Keep responses short (1-2 sentences).
+
+TOOL USAGE RULES (CRITICAL):
+- Tools execute silently in the background. NEVER write or display function calls, JSON, code, or tool syntax in your response.
+- Only use tools when the user explicitly asks about: weather, park alerts, pricing, parking, routes, or itineraries.
+- After tools run, integrate results naturally into conversation—never mention how you got the data.
+
+RESPONSE RULES:
+- Never fabricate or guess information. If you don't know, say so.
+- Respond conversationally, like talking to a friend.
+- Keep it short: 1-2 sentences max.
+- Never output: <function=...>, JSON, code blocks, function names, or technical details.
+
+CLOSING LOGIC:
+- If user says "no", "nope", "I'm good", "that's all", "thanks", or indicates they're done, respond with a warm closing like: "Safe travels out there! Enjoy the trails. 🏕️" or "Awesome! Have an amazing adventure!"
+- Keep closing statements short and genuine."""
 
 async def process_llm_response(chat_history):
     try:
@@ -109,10 +122,10 @@ async def process_llm_response(chat_history):
                     data = await get_park_pricing(args.get("park_name"))
                 elif tool_name == "get_parking_info":
                     data = await get_parking_info(args.get("location"))
-                elif tool_name == "get_route_planning":
-                    data = await get_route_planning(args.get("start", ""), args.get("end", ""))
                 elif tool_name == "get_travel_itinerary":
                     data = await get_travel_itinerary(args.get("trip_description", ""))
+                elif tool_name == "get_travel_recommendations":
+                    data = await get_travel_recommendations(args.get("origin", ""), args.get("destination", ""))
                 else:
                     data = "Tool not recognized."
 
@@ -226,8 +239,22 @@ async def text_chat(request: Request):
 @app.websocket("/ws/audio")
 async def audio_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    print("🎙️ WebSocket connection established. Booting Agent...")
     session_id = id(websocket)
-    chat_history = chat_histories.get(session_id, [{"role": "system", "content": get_system_prompt()}])
+    # Send greeting immediately
+    greeting = "Hey there! Ready to explore some backcountry? Just ask me about weather, routes, or trail conditions."
+    await websocket.send_text(greeting)
+    
+    chat_history = [
+        {
+            "role": "system",
+            "content": """You are a friendly backcountry guide..."""
+        },
+        {
+            "role": "assistant",
+            "content": greeting  # Add greeting to history so context is maintained
+        }
+    ]
 
     try:
         dg_connection = deepgram.listen.asyncwebsocket.v("1")
