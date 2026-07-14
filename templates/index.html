@@ -6,6 +6,48 @@
     <title>🏕️ Backcountry Route Coordinator</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
+<script>
+    const outdoorKeywords = [
+        'hiking', 'mountain', 'camping', 'forest', 
+        'backpacking', 'nature', 'adventure', 'trail',
+        'landscape', 'desert', 'beach', 'climbing'
+    ];
+
+    function setRandomBackground() {
+        try {
+            const keyword = outdoorKeywords[Math.floor(Math.random() * outdoorKeywords.length)];
+            
+            // Using Pexels CDN (no API key needed)
+            const imageUrl = `https://images.pexels.com/photos/3714896/pexels-photo-3714896.jpeg?auto=compress&cs=tinysrgb&w=1920&h=1080&dpr=1`;
+            
+            // Alternative: Use random number for variety
+            const randomId = Math.floor(Math.random() * 50000);
+            const backupUrl = `https://picsum.photos/1920/1080?random=${randomId}&${keyword}`;
+            
+            // Set background with fallback
+            const bg = `linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), url('${backupUrl}')`;
+            document.body.style.backgroundImage = bg;
+            document.body.style.backgroundSize = 'cover';
+            document.body.style.backgroundPosition = 'center';
+            document.body.style.backgroundAttachment = 'fixed';
+            
+            console.log('Background updated');
+        } catch (error) {
+            console.log('Could not load image');
+        }
+    }
+
+    // Load on page start
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setRandomBackground);
+    } else {
+        setRandomBackground();
+    }
+    
+    // Change every 10 minutes
+    setInterval(setRandomBackground, 10 * 60 * 1000);
+</script>
+
 <body>
     <header>
         <div class="header-title">
@@ -67,7 +109,7 @@
             </div>
             <hr style="margin: 20px 0; border: 1px solid rgba(100, 181, 246, 0.15);">
             <h3>💡 Try Asking</h3>
-            <ul style="list-style: none; font-size: 12px; color: #b0e0e6; line-height: 2;">
+            <ul style="list-style: none; font-size: 16px; color: #b0e0e6; line-height: 2;">
                 <li>✓ "What's the weather in Moab?"</li>
                 <li>✓ "Tell me about Zion alerts"</li>
                 <li>✓ "Route to Yellowstone"</li>
